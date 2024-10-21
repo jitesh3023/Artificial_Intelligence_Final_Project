@@ -124,7 +124,7 @@ class GroceryStoreEnv(gym.Env):
     def reset(self):
         self.robot_position = self.entry_exit_position.copy()
         self.done = False
-        self.grocery_list = ["milk", "Eggs", "Cheese"]  # Example grocery list items
+        #self.grocery_list = ["milk", "Eggs", "Cheese"]  # Example grocery list items
         return self._get_observation()
     
     def step(self, action):
@@ -186,6 +186,11 @@ class GroceryStoreEnv(gym.Env):
         self.ax.set_xticks([])  
         self.ax.set_yticks([])  
         self.ax.set_title('Grocery Store Environment')
+
+        self.ax.text(-3, self.grid_size[0] - 1, "Grocery List:", fontsize=15, fontweight='bold', color='black')  
+        for idx, item in enumerate(self.grocery_list):
+            self.ax.text(-3, self.grid_size[0] - (2 + idx), f"- {item}", fontsize=12, color='black')
+
         self.fig.canvas.draw_idle()
         plt.pause(0.1)
 
@@ -199,20 +204,20 @@ class GroceryStoreEnv(gym.Env):
 
 # For testing the environment 
 
-env = GroceryStoreEnv()
-observation = env.reset()
-done = False
-total_reward = 0
+# env = GroceryStoreEnv()
+# observation = env.reset()
+# done = False
+# total_reward = 0
 
-while not env.stop_simulation:
-    action = env.action_space.sample()
-    observation, reward, done, info = env.step(action)
-    env.render()
-    print(f"Action: {action}, Reward: {reward}, Observation: {observation}, Done: {done}")
-    total_reward += reward
-    if done:
-        print("Episode finished! Returning to entry/exit point.")
-        env.reset()
-        break 
-print("Total Reward:", total_reward)
-env.close()
+# while not env.stop_simulation:
+#     action = env.action_space.sample()
+#     observation, reward, done, info = env.step(action)
+#     env.render()
+#     print(f"Action: {action}, Reward: {reward}, Observation: {observation}, Done: {done}")
+#     total_reward += reward
+#     if done:
+#         print("Episode finished! Returning to entry/exit point.")
+#         env.reset()
+#         break 
+# print("Total Reward:", total_reward)
+# env.close()
