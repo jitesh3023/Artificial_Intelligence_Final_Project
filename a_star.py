@@ -86,7 +86,8 @@ if __name__ == "__main__":
     if solution_path:
         print(f"Total solution path: {solution_path}")
         for step in solution_path:
-            env.robot_position = np.array(step)  
+            env.robot_position = np.array(step)
+            #robot position is a global variable between a_star and env  
             env.render()  
             #plt.pause(0.1)  
     else:
