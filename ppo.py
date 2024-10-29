@@ -195,7 +195,7 @@ class PPOAgent:
         # Update the old policy with new policy weights after optimization step is complete.
         self.policy_old.load_state_dict(self.policy.state_dict())
 
-    def train(self,max_episodes=100,max_steps=100):
+    def train(self,max_episodes=100,max_steps=150):
         """
         Trains the PPO agent.
         
@@ -254,7 +254,7 @@ class PPOAgent:
                 memory['returns']=returns
 
             episode_rewards.append(total_reward)
-
+            print(total_reward)
             memory={'states':[],'actions':[],'logprobs':[],'rewards':[],'dones':[]}
 
             if episode%10==0:
@@ -277,12 +277,12 @@ class PPOAgent:
 if __name__ == "__main__":
     env = GroceryStoreEnv()
     state = env.reset()
-    env.grocery_list = ["Yogurt", "Bacon", "Potato Chips", "Pasta"]
+    env.grocery_list = ["Yogurt", "Bacon", "Potato Chips"]
 
     agent = PPOAgent(env)
     agent.train(max_episodes=500)
 
-    env.grocery_list = ["Yogurt", "Bacon", "Potato Chips", "Pasta"]
+    env.grocery_list = ["Yogurt", "Bacon", "Potato Chips"]
 
     done = False
     total_reward = 0
