@@ -11,7 +11,7 @@ class AStarSolver:
     # Desining heuristic cost which is nothing but the manhattan distance between the 2 cells
     def heuristic(self, pos1, pos2):
         return abs(pos1[0]-pos2[0]) + abs(pos1[1]-pos2[1])
-    
+         
     # Main A star logic
     def astar(self, start, goal):
         open_list = []

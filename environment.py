@@ -1,12 +1,12 @@
-import gym
-from gym import spaces
+import gymnasium as gym
+from gymnasium import spaces
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import colors
 import matplotlib.image as mpimg
 
 class GroceryStoreEnv(gym.Env):
-    def __init__(self):
+    def __init__(self, grocery_list=None):
         super(GroceryStoreEnv, self).__init__()
         # Here I am defining actions_space. For now I am assuming our agent can
         # moving only in 4 directions that are - up, down, right, left. Diagonal
@@ -14,8 +14,10 @@ class GroceryStoreEnv(gym.Env):
         self.action_space = spaces.Discrete(4)
         # Observation space
         self.grid_size = (20, 20) 
-        self.observation_space = spaces.Box(low=0, high=self.grid_size[0]-1, shape=(8,), dtype=np.int32)
-        
+        self.observation_space = spaces.Box(low=0, high=self.grid_size[0]-1, shape=(128,), dtype=np.int32)
+        #self.observation_space = spaces.Box(low=0, high=self.grid_size[0]-1, shape=(8,), dtype=np.int32)
+        self.visited_positions = set()
+
         # Defining Robot/Agent and item positions in the world
         self.entry_exit_position = np.array([0,0])
         self.robot_position = self.entry_exit_position.copy()
@@ -103,8 +105,11 @@ class GroceryStoreEnv(gym.Env):
             "Dish Soap": mpimg.imread('Images/dish_soap.jpeg')
         }
 
-        self.grocery_list = ["milk", "Eggs", "Cheese"]  # Example grocery list items
-
+        self.original_grocery_list = grocery_list if grocery_list else ["milk", "Eggs", "Cheese"]
+        self.grocery_list = self.original_grocery_list.copy()  
+        self.last_position = tuple(self.robot_position)  # Track last position to penalize staying still
+        self.max_steps_per_episode = 500  # Max steps per episode to avoid endless loops
+        self.current_step = 0       
         self.stop_simulation = False
         self.fig, self.ax = plt.subplots()
         self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
@@ -118,48 +123,99 @@ class GroceryStoreEnv(gym.Env):
     # For returning robot and item's position at any instance
     def _get_observation(self):
         items_positions = list(self.items_list.values())
-        return np.concatenate((self.robot_position, np.array(items_positions).flatten()))
+        return np.concatenate((self.robot_position, np.array(items_positions).flatten())).astype(np.int32)
+
 
     # For resetting the environment
-    def reset(self):
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
         self.robot_position = self.entry_exit_position.copy()
-        self.done = False
-        #self.grocery_list = ["milk", "Eggs", "Cheese"]  # Example grocery list items
-        return self._get_observation()
-    
-    def step(self, action):
-        new_position = self.robot_position.copy()
-        if action == 0:  # up
-            new_position[0] = max(self.robot_position[0] - 1, 0)
-        elif action == 1:  # down
-            new_position[0] = min(self.robot_position[0] + 1, self.grid_size[0] - 1)
-        elif action == 2:  # left
-            new_position[1] = max(self.robot_position[1] - 1, 0)
-        elif action == 3:  # right
-            new_position[1] = min(self.robot_position[1] + 1, self.grid_size[1] - 1)
+        self.visited_positions = set()
+        self.grocery_list = self.original_grocery_list.copy()
+        self.current_step = 0
+        self.last_position = tuple(self.robot_position)
+        print(f"Environment reset. Starting position: {self.robot_position}")
+        return self._get_observation(), {}
+
+    def calculate_distance_to_items(self):
+        # Only calculate distance if there are items left to collect
+        if self.grocery_list:
+            return min(np.linalg.norm(np.array(self.robot_position) - np.array(self.items_list[item])) 
+                    for item in self.grocery_list)
+        else:
+            # Return a large value (or 0) if no items remain to avoid min() on an empty sequence
+            return float('inf')
         
+
+    def step(self, action):
+        # Apply action to update position
+        new_position = self.robot_position.copy()
+        if action == 0:  # Up
+            new_position[0] = max(self.robot_position[0] - 1, 0)
+        elif action == 1:  # Down
+            new_position[0] = min(self.robot_position[0] + 1, self.grid_size[0] - 1)
+        elif action == 2:  # Left
+            new_position[1] = max(self.robot_position[1] - 1, 0)
+        elif action == 3:  # Right
+            new_position[1] = min(self.robot_position[1] + 1, self.grid_size[1] - 1)
+
+        # Step penalty
+        reward = -0.1
+
+        # Calculate initial distance if items remain
+        initial_distance = self.calculate_distance_to_items() if self.grocery_list else 0
+
+        # Update position if it's not in an aisle
         if tuple(new_position) not in self.aisles:
             self.robot_position = new_position
+        else:
+            reward -= 1.0  # Extra penalty for entering aisles
 
-        # Defining Rewards and Penalties
-        reward = -1 
+        # Exploration bonus for moving to a new position
+        if tuple(self.robot_position) not in self.visited_positions:
+            reward += 1.0
+            self.visited_positions.add(tuple(self.robot_position))
+
+        # Additional penalty for staying in the same position
+        if tuple(self.robot_position) == self.last_position:
+            reward -= 0.5
+        else:
+            self.last_position = tuple(self.robot_position)
+
+        # Reward for moving closer to any remaining item if items remain
+        if self.grocery_list:
+            new_distance = self.calculate_distance_to_items()
+            if new_distance < initial_distance:
+                reward += 0.5
+
+        # Check if the agent collected an item
         collected_items = []
-
-        for item, position in self.items_list.items():
-            if item in self.grocery_list and np.array_equal(self.robot_position, np.array(position)):
-                reward += 100  # Reward for collecting an item
+        for item, pos in self.items_list.items():
+            if item in self.grocery_list and np.array_equal(self.robot_position, np.array(pos)):
+                reward += 100
                 collected_items.append(item)
 
-        # After collecting the item, remove it from the grocery list
+        # Remove collected items from the grocery list
         for item in collected_items:
-            self.grocery_list.remove(item)  # Use remove() to remove by value
+            self.grocery_list.remove(item)
 
-        # Condition to end the episode: all items collected and robot returned to entry/exit point
+        # End episode if all items are collected and agent at the start
+        done = False
         if not self.grocery_list and np.array_equal(self.robot_position, self.entry_exit_position):
-            reward += 200  # Extra reward for returning to the entry/exit point
-            self.done = True
+            reward += 200
+            done = True
 
-        return self._get_observation(), reward, self.done, {}
+        # Check for truncation
+        self.current_step += 1
+        truncated = self.current_step >= self.max_steps_per_episode
+
+        print(f"Position: {self.robot_position}, Reward: {reward}, Remaining items: {self.grocery_list}")
+
+        return self._get_observation(), reward, done, truncated, {}
+
+
+
+
     
     cmap = colors.ListedColormap(['white', 'green', 'blue', 'black']) # white for grid, green for robot, blue for items
     bounds = [0, 1, 2, 3, 4]
@@ -193,10 +249,6 @@ class GroceryStoreEnv(gym.Env):
 
         self.fig.canvas.draw_idle()
         plt.pause(0.1)
-
-
-
-
 
     def close(self):
         pass
