@@ -176,7 +176,7 @@ def evaluate_dqn(env, agent, episodes=5, visualize=True):
 
 
 if __name__ == "__main__":
-    env = GroceryStoreEnv(grocery_list=["Butter", "Potatoes", "Crackers"])
+    env = GroceryStoreEnv(grocery_list=["Butter", "Crackers"])
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
 

@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import matplotlib.pyplot as plt
 
 
 class ActorCritic(nn.Module):
@@ -31,8 +32,8 @@ class PPOAgent:
         self.clip_epsilon = clip_epsilon
         self.gamma = 0.99
         self.lam = 0.95
-        self.loss_log = []  # To store loss values and timesteps
-        self.timesteps = 0  # Track total timesteps
+        self.loss_log = []  
+        self.timesteps = 0 
 
     def compute_advantages(self, rewards, values, dones):
         advantages = []
@@ -56,7 +57,7 @@ class PPOAgent:
 
             ratios = torch.exp(new_log_probs - torch.tensor(log_probs, dtype=torch.float32))
 
-            # Clipped surrogate objective
+            # Clipped surrogate objective and policy loss
             surr1 = ratios * advantages
             surr2 = torch.clamp(ratios, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages
             policy_loss = -torch.min(surr1, surr2).mean()
@@ -86,19 +87,19 @@ def preprocess_state(state):
     """Flatten the state if it is a dictionary or structured observation."""
     if isinstance(state, dict):
         state = np.concatenate([np.ravel(v) for v in state.values()])
-    elif isinstance(state, (list, tuple)):  # Handle lists/tuples
+    elif isinstance(state, (list, tuple)): 
         state = np.concatenate([np.ravel(np.array(s)) for s in state])
     return np.array(state, dtype=np.float32)
 
 
 def collect_trajectories(env, agent, steps=2048):
     states, actions, rewards, log_probs, values, dones = [], [], [], [], [], []
-    state, _ = env.reset()  # Extract observation and preprocess
+    state, _ = env.reset()  
     state = preprocess_state(state)
     
     for _ in range(steps):
         action, log_prob, value = agent.select_action(state)
-        next_state, reward, done, truncated, _ = env.step(action)  # Handle five return values
+        next_state, reward, done, truncated, _ = env.step(action) 
         done = done or truncated
 
         next_state = preprocess_state(next_state)
@@ -120,10 +121,30 @@ def collect_trajectories(env, agent, steps=2048):
 
 
 def train(env, agent, iterations=1000):
-    for iteration in range(iterations):
+    for iteration in range(1, iterations + 1):
+        # Collect trajectories
         states, actions, rewards, log_probs, values, dones = collect_trajectories(env, agent)
+        
+        # Update agent with the trajectories and log loss
         agent.update(states, actions, log_probs, rewards, values, dones)
-        print(f"Iteration {iteration + 1}: Policy updated.")
+        
+        print(f"Iteration {iteration}: Policy updated.")
+    
+    # Extract the iteration numbers and loss values from loss_log
+    iteration_numbers = list(range(1, len(agent.loss_log) + 1))
+    loss_values = [loss for _, loss in agent.loss_log]
+
+    # Plotting iterations vs. loss
+    plt.figure(figsize=(10, 6))
+    plt.plot(iteration_numbers, loss_values, label="Loss")
+    plt.xlabel("Iterations")
+    plt.ylabel("Loss")
+    plt.title("Training Loss vs. Iterations")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+
 
 
 def evaluate(env, agent, episodes=5):
@@ -141,13 +162,13 @@ def evaluate(env, agent, episodes=5):
             state = preprocess_state(next_state)
             total_reward += reward
 
-            env.render()  # Optional visualization
+            env.render()  
 
         print(f"Episode {episode + 1}: Total Reward = {total_reward}")
 
 
 if __name__ == "__main__":
-    from environment import GroceryStoreEnv  # Import your existing environment
+    from environment import GroceryStoreEnv  
 
     env = GroceryStoreEnv(grocery_list=["Butter", "Potatoes", "Crackers"])
     state_dim = env.observation_space.shape[0]
@@ -157,7 +178,7 @@ if __name__ == "__main__":
     # Training or evaluating
     choice = input("Train or evaluate? (train/eval): ").strip().lower()
     if choice == "train":
-        train(env, agent, iterations=100)
+        train(env, agent, iterations=1000)
         torch.save(agent.model.state_dict(), "ppo_agent_scratch.pth")
     elif choice == "eval":
         agent.model.load_state_dict(torch.load("ppo_agent_scratch.pth"))
