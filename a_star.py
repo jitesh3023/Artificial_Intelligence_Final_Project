@@ -79,7 +79,7 @@ class AStarSolver:
 if __name__ == "__main__":
     env = GroceryStoreEnv()
     env.reset()
-    env.grocery_list = ["Yogurt", "Bacon", "Potato Chips", "Pasta"]
+    env.grocery_list = ["Butter", "Potatoes", "Crackers"]
     grocery_items = {item: env.items_list[item] for item in env.grocery_list}
     astar_solver = AStarSolver(env, grocery_items)
     solution_path = astar_solver.solve()

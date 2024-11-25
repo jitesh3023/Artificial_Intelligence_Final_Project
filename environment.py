@@ -129,12 +129,16 @@ class GroceryStoreEnv(gym.Env):
     # For resetting the environment
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.robot_position = self.entry_exit_position.copy()
+        # Check if the task was completed or if an explicit reset is required
+        if not self.grocery_list:
+            self.robot_position = self.entry_exit_position.copy()
+            self.grocery_list = self.original_grocery_list.copy()
+            print(f"Task completed! Resetting environment to start position: {self.robot_position}")
+        else:
+            print(f"Environment reset called, but task is incomplete. Maintaining current state.")
         self.visited_positions = set()
-        self.grocery_list = self.original_grocery_list.copy()
         self.current_step = 0
         self.last_position = tuple(self.robot_position)
-        print(f"Environment reset. Starting position: {self.robot_position}")
         return self._get_observation(), {}
 
     def calculate_distance_to_items(self):
@@ -147,68 +151,81 @@ class GroceryStoreEnv(gym.Env):
             return float('inf')
         
 
-    def step(self, action):
-        # Apply action to update position
-        new_position = self.robot_position.copy()
-        if action == 0:  # Up
-            new_position[0] = max(self.robot_position[0] - 1, 0)
-        elif action == 1:  # Down
-            new_position[0] = min(self.robot_position[0] + 1, self.grid_size[0] - 1)
-        elif action == 2:  # Left
-            new_position[1] = max(self.robot_position[1] - 1, 0)
-        elif action == 3:  # Right
-            new_position[1] = min(self.robot_position[1] + 1, self.grid_size[1] - 1)
+    def step(self, action=None):
+        # Find the nearest item in the grocery list
+        if not self.grocery_list:
+            # No items left to collect
+            return self._get_observation(), 0, True, False, {}
 
-        # Step penalty
-        reward = -0.1
+        nearest_item = min(
+            self.grocery_list, key=lambda item: np.linalg.norm(self.robot_position - np.array(self.items_list[item]))
+        )
+        target_position = np.array(self.items_list[nearest_item])
 
-        # Calculate initial distance if items remain
-        initial_distance = self.calculate_distance_to_items() if self.grocery_list else 0
+        # Evaluate all possible moves (Up, Down, Left, Right)
+        moves = {
+            0: np.array([self.robot_position[0] - 1, self.robot_position[1]]),  # Up
+            1: np.array([self.robot_position[0] + 1, self.robot_position[1]]),  # Down
+            2: np.array([self.robot_position[0], self.robot_position[1] - 1]),  # Left
+            3: np.array([self.robot_position[0], self.robot_position[1] + 1]),  # Right
+        }
 
-        # Update position if it's not in an aisle
-        if tuple(new_position) not in self.aisles:
-            self.robot_position = new_position
+        # Filter out invalid moves (boundary or aisle constraints)
+        valid_moves = {
+            a: pos
+            for a, pos in moves.items()
+            if 0 <= pos[0] < self.grid_size[0] and 0 <= pos[1] < self.grid_size[1] and tuple(pos) not in self.aisles
+        }
+
+        # Select the move that minimizes the Euclidean distance to the target
+        best_action = min(
+            valid_moves.keys(),
+            key=lambda a: np.linalg.norm(valid_moves[a] - target_position)
+        )
+        new_position = valid_moves[best_action]
+
+        # Base penalty for every step
+        reward = -1
+
+        # Penalize revisiting positions
+        if tuple(new_position) in self.visited_positions:
+            reward -= 5  # Discourage revisiting
+
+        # Add the position to visited
+        self.visited_positions.add(tuple(new_position))
+
+        # Calculate distance rewards
+        old_distance = np.linalg.norm(self.robot_position - target_position)
+        new_distance = np.linalg.norm(new_position - target_position)
+
+        # Reward improvement in distance
+        if new_distance < old_distance:
+            reward += 20  # Increased bonus for moving closer to the target
         else:
-            reward -= 1.0  # Extra penalty for entering aisles
+            reward -= 5  # Penalty for moving away from the target
 
-        # Exploration bonus for moving to a new position
-        if tuple(self.robot_position) not in self.visited_positions:
-            reward += 1.0
-            self.visited_positions.add(tuple(self.robot_position))
+        # Update the robot's position
+        self.robot_position = new_position
 
-        # Additional penalty for staying in the same position
-        if tuple(self.robot_position) == self.last_position:
-            reward -= 0.5
-        else:
-            self.last_position = tuple(self.robot_position)
-
-        # Reward for moving closer to any remaining item if items remain
-        if self.grocery_list:
-            new_distance = self.calculate_distance_to_items()
-            if new_distance < initial_distance:
-                reward += 0.5
-
-        # Check if the agent collected an item
+        # Check if the robot collects an item
         collected_items = []
         for item, pos in self.items_list.items():
             if item in self.grocery_list and np.array_equal(self.robot_position, np.array(pos)):
-                reward += 100
+                reward += 100  # Large reward for collecting an item
                 collected_items.append(item)
 
         # Remove collected items from the grocery list
         for item in collected_items:
             self.grocery_list.remove(item)
 
-        # End episode if all items are collected and agent at the start
-        done = False
-        if not self.grocery_list and np.array_equal(self.robot_position, self.entry_exit_position):
-            reward += 200
-            done = True
+        # Check if the task is complete
+        done = not self.grocery_list  # Task is done if all items are collected
 
-        # Check for truncation
+        # Check for truncation (max steps per episode)
         self.current_step += 1
         truncated = self.current_step >= self.max_steps_per_episode
 
+        # Log the robot's state for debugging
         print(f"Position: {self.robot_position}, Reward: {reward}, Remaining items: {self.grocery_list}")
 
         return self._get_observation(), reward, done, truncated, {}
@@ -222,36 +239,90 @@ class GroceryStoreEnv(gym.Env):
     norm = colors.BoundaryNorm(bounds, cmap.N)
 
     def render(self, mode='human'):
+        """Render the grocery store grid with images and visual elements."""
         self.ax.clear()
         grid = np.zeros(self.grid_size)
+
+        # Mark aisles and items
         for aisle_pos in self.aisles:
             grid[aisle_pos] = 3  # Mark aisles with 3
         for item_pos in self.items_list.values():
             grid[item_pos] = 2  # Mark items with 2
         grid[tuple(self.robot_position)] = 1  # Mark robot with 1
 
-        self.ax.imshow(grid, cmap=self.cmap, norm=self.norm)
-        for item, pos in self.items_list.items():
-            image = self.item_images[item]  
-            self.ax.imshow(image, extent=(pos[1] - 0.5, pos[1] + 0.5, pos[0] - 0.5, pos[0] + 0.5), aspect='auto', zorder=2)
+        # Draw the grid
+        self.ax.imshow(grid, cmap=self.cmap, norm=self.norm, zorder=1)
 
-        self.ax.add_patch(plt.Rectangle((self.robot_position[1] - 0.5, self.robot_position[0] - 0.5), 1, 1, color='green', zorder=3))
+        # Draw images on top of the grid for all items
+        for item, pos in self.items_list.items():
+            image = self.item_images.get(item)
+            if image is not None:  # Ensure the image exists
+                self.ax.imshow(image, extent=(pos[1] - 0.5, pos[1] + 0.5, pos[0] - 0.5, pos[0] + 0.5),
+                            aspect='auto', zorder=3)  # Higher z-order to overlay on the grid
+
+        # Draw the robot
+        self.ax.add_patch(plt.Rectangle((self.robot_position[1] - 0.5, self.robot_position[0] - 0.5),
+                                        1, 1, color='green', zorder=4))  # Highest z-order
+
+        # Set up gridlines
         self.ax.set_xticks(np.arange(-0.5, self.grid_size[1], 1), minor=True)
         self.ax.set_yticks(np.arange(-0.5, self.grid_size[0], 1), minor=True)
         self.ax.grid(which='minor', color='black', linestyle='-', linewidth=0.5)
-        self.ax.set_xticks([])  
-        self.ax.set_yticks([])  
-        self.ax.set_title('Grocery Store Environment')
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
 
-        self.ax.text(-3, self.grid_size[0] - 1, "Grocery List:", fontsize=15, fontweight='bold', color='black')  
+        # Add grocery list and title
+        self.ax.set_title('Grocery Store Environment')
+        self.ax.text(-3, self.grid_size[0] - 1, "Grocery List:", fontsize=15, fontweight='bold', color='black')
         for idx, item in enumerate(self.grocery_list):
             self.ax.text(-3, self.grid_size[0] - (2 + idx), f"- {item}", fontsize=12, color='black')
 
+        # Redraw the canvas
         self.fig.canvas.draw_idle()
         plt.pause(0.1)
 
     def close(self):
         pass
+
+if __name__ == "__main__":
+    # Create the environment
+    env = GroceryStoreEnv(grocery_list=["milk", "Eggs", "Cheese"])
+
+    # Reset the environment to get the initial observation
+    observation, _ = env.reset()
+
+    # Initialize variables for visualization
+    done = False
+    total_reward = 0
+
+    # Run the simulation
+    while not env.stop_simulation:  # Press 'q' to stop
+        # Take a random action
+        action = env.action_space.sample()
+
+        # Step through the environment
+        observation, reward, done, truncated, _ = env.step(action)
+
+        # Render the environment
+        env.render()
+
+        # Print information for debugging
+        print(f"Action: {action}, Reward: {reward}, Observation: {observation}, Done: {done}")
+
+        # Accumulate the total reward
+        total_reward += reward
+
+        # If the episode is done, reset the environment
+        if done or truncated:
+            print("Episode finished! Resetting the environment...")
+            observation, _ = env.reset()
+            break
+
+    print(f"Total Reward: {total_reward}")
+
+    # Close the environment after finishing
+    env.close()
+
 
 
 # For testing the environment 
