@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import colors
 import matplotlib.image as mpimg
+from queue import PriorityQueue
 
 class GroceryStoreEnv(gym.Env):
     def __init__(self, grocery_list=None):
@@ -29,6 +30,8 @@ class GroceryStoreEnv(gym.Env):
             (3, 11), (4, 11), (5, 11), (6, 11), (7, 11), (8, 11), (9, 11), (10, 11), (11, 11), (12, 11), (13, 11), (14, 11), (15, 11), (16, 11),
             (3, 15), (4, 15), (5, 15), (6, 15), (7, 15), (8, 15), (9, 15), (10, 15), (11, 15), (12, 15), (13, 15), (14, 15), (15, 15), (16, 15)  
         ]
+        #self.aisles=[] 
+
 
         self.items_list = {
             "milk": (0,3), "Eggs":(0,5), "Cheese":(0,7), "Yogurt":(0,9), "Cream":(0, 11), "Butter":(0,13), "Ice Cream":(0,15),
@@ -151,84 +154,104 @@ class GroceryStoreEnv(gym.Env):
             return float('inf')
         
 
+    def find_shortest_path(self, start, target):
+        """Find the shortest path using A* algorithm."""
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        queue = PriorityQueue()
+        queue.put((0, start))
+        came_from = {start: None}
+        cost_so_far = {start: 0}
+
+        while not queue.empty():
+            _, current = queue.get()
+            
+            if current == target:
+                # Reconstruct the path
+                path = []
+                while current:
+                    path.append(current)
+                    current = came_from[current]
+                path.reverse()
+                return path  # Return the shortest path
+            
+            for direction in directions:
+                neighbor = (current[0] + direction[0], current[1] + direction[1])
+                # Check if the neighbor is valid
+                if (0 <= neighbor[0] < self.grid_size[0] and
+                    0 <= neighbor[1] < self.grid_size[1] and
+                    neighbor not in self.aisles):
+                    new_cost = cost_so_far[current] + 1  # Uniform cost
+                    if neighbor not in cost_so_far or new_cost < cost_so_far[neighbor]:
+                        cost_so_far[neighbor] = new_cost
+                        priority = new_cost + np.linalg.norm(np.array(neighbor) - np.array(target))  # Heuristic
+                        queue.put((priority, neighbor))
+                        came_from[neighbor] = current
+
+        return None  # No path found
+
+
     def step(self, action=None):
-        # Find the nearest item in the grocery list
+        """Modified step function to use pathfinding for valid paths."""
         if not self.grocery_list:
-            # No items left to collect
             return self._get_observation(), 0, True, False, {}
-
-        nearest_item = min(
-            self.grocery_list, key=lambda item: np.linalg.norm(self.robot_position - np.array(self.items_list[item]))
-        )
-        target_position = np.array(self.items_list[nearest_item])
-
-        # Evaluate all possible moves (Up, Down, Left, Right)
-        moves = {
-            0: np.array([self.robot_position[0] - 1, self.robot_position[1]]),  # Up
-            1: np.array([self.robot_position[0] + 1, self.robot_position[1]]),  # Down
-            2: np.array([self.robot_position[0], self.robot_position[1] - 1]),  # Left
-            3: np.array([self.robot_position[0], self.robot_position[1] + 1]),  # Right
-        }
-
-        # Filter out invalid moves (boundary or aisle constraints)
-        valid_moves = {
-            a: pos
-            for a, pos in moves.items()
-            if 0 <= pos[0] < self.grid_size[0] and 0 <= pos[1] < self.grid_size[1] and tuple(pos) not in self.aisles
-        }
-
-        # Select the move that minimizes the Euclidean distance to the target
-        best_action = min(
-            valid_moves.keys(),
-            key=lambda a: np.linalg.norm(valid_moves[a] - target_position)
-        )
-        new_position = valid_moves[best_action]
-
-        # Base penalty for every step
-        reward = -1
-
-        # Penalize revisiting positions
-        if tuple(new_position) in self.visited_positions:
-            reward -= 5  # Discourage revisiting
-
-        # Add the position to visited
-        self.visited_positions.add(tuple(new_position))
-
-        # Calculate distance rewards
-        old_distance = np.linalg.norm(self.robot_position - target_position)
-        new_distance = np.linalg.norm(new_position - target_position)
-
-        # Reward improvement in distance
-        if new_distance < old_distance:
-            reward += 20  # Increased bonus for moving closer to the target
+        
+        # Find the nearest item along a valid path
+        shortest_path = None
+        target_item = None
+        for item in self.grocery_list:
+            target_position = tuple(self.items_list[item])
+            path = self.find_shortest_path(tuple(self.robot_position), target_position)
+            if path:
+                if shortest_path is None or len(path) < len(shortest_path):
+                    shortest_path = path
+                    target_item = item
+        
+        if not shortest_path:
+            print("No valid path to any item. Ending episode.")
+            return self._get_observation(), -1000, True, False, {}  # Penalize and end if stuck
+        
+        # Ensure there is a next position to move to
+        if len(shortest_path) > 1:
+            new_position = np.array(shortest_path[1])  # Move to the next step in the path
         else:
-            reward -= 5  # Penalty for moving away from the target
+            new_position = np.array(shortest_path[0])  # Already at the target
 
-        # Update the robot's position
+        # Reward calculation
+        reward = -1  # Base penalty for each step
+        if tuple(new_position) in self.visited_positions:
+            reward -= 5  # Penalize revisiting
+        
+        old_distance = np.linalg.norm(self.robot_position - np.array(self.items_list[target_item]))
+        new_distance = np.linalg.norm(new_position - np.array(self.items_list[target_item]))
+        
+        if new_distance < old_distance:
+            reward += 20  # Reward moving closer
+        else:
+            reward -= 5  # Penalize moving away
+
+        # Update robot position and visited positions
         self.robot_position = new_position
-
-        # Check if the robot collects an item
+        self.visited_positions.add(tuple(new_position))
+        
+        # Check if the robot collects the item
         collected_items = []
         for item, pos in self.items_list.items():
             if item in self.grocery_list and np.array_equal(self.robot_position, np.array(pos)):
-                reward += 100  # Large reward for collecting an item
+                reward += 100  # Reward for collecting item
                 collected_items.append(item)
-
-        # Remove collected items from the grocery list
+        
         for item in collected_items:
             self.grocery_list.remove(item)
-
+        
         # Check if the task is complete
-        done = not self.grocery_list  # Task is done if all items are collected
-
-        # Check for truncation (max steps per episode)
+        done = not self.grocery_list
         self.current_step += 1
         truncated = self.current_step >= self.max_steps_per_episode
-
-        # Log the robot's state for debugging
+        
         print(f"Position: {self.robot_position}, Reward: {reward}, Remaining items: {self.grocery_list}")
-
         return self._get_observation(), reward, done, truncated, {}
+
+        
 
 
 

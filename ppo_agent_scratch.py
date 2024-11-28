@@ -5,7 +5,8 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 
 
-class ActorCritic(nn.Module):
+class ActorCritic(nn.Module): # Policy network
+    # For now I am using 2 layered Feed forward network. Can change later
     def __init__(self, state_dim, action_dim):
         super(ActorCritic, self).__init__()
         self.base = nn.Sequential(
@@ -14,7 +15,7 @@ class ActorCritic(nn.Module):
             nn.Linear(64, 64),
             nn.ReLU()
         )
-        self.actor = nn.Sequential(
+        self.actor = nn.Sequential( # Value Function network
             nn.Linear(64, action_dim),
             nn.Softmax(dim=-1)
         )
@@ -27,6 +28,11 @@ class ActorCritic(nn.Module):
 
 class PPOAgent:
     def __init__(self, state_dim, action_dim, clip_epsilon=0.2, lr=3e-4):
+
+        # clip_epsilon = This will control how much the policy can change
+        # gamma = Discount factor
+        # lam = Reducing variance in advantage estimates.
+
         self.model = ActorCritic(state_dim, action_dim)
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.clip_epsilon = clip_epsilon
@@ -35,7 +41,11 @@ class PPOAgent:
         self.loss_log = []  
         self.timesteps = 0 
 
+
     def compute_advantages(self, rewards, values, dones):
+        # This advantages would then be used to calculate losses and then 
+        # backpropogated through the policy and Value Function network for 
+        # training and updatind weights and biases
         advantages = []
         advantage = 0
         for t in reversed(range(len(rewards))):
@@ -45,6 +55,9 @@ class PPOAgent:
         return advantages
 
     def update(self, states, actions, log_probs, rewards, values, dones):
+        # Measures how much the policy has changed compared to old version and then
+        # finds the ration and loss. This function also ensures that policy updated do not 
+        # deviate outside the range -> (1- clip) to (1+ clip)
         advantages = self.compute_advantages(rewards, values, dones)
         advantages = torch.tensor(advantages, dtype=torch.float32)
         returns = advantages + torch.tensor(values[:-1], dtype=torch.float32)
@@ -72,7 +85,7 @@ class PPOAgent:
             loss.backward()
             self.optimizer.step()
 
-            # Log the loss and timestep
+            # Log the loss and timestep, need this for plotting later
             self.loss_log.append((self.timesteps, loss.item()))
 
     def select_action(self, state):
@@ -93,6 +106,8 @@ def preprocess_state(state):
 
 
 def collect_trajectories(env, agent, steps=2048):
+    # This function is responsible for creating the data store which stores state, action
+    # reward and probability for updating the weights and biases in the 2 network while backpropogating
     states, actions, rewards, log_probs, values, dones = [], [], [], [], [], []
     state, _ = env.reset()  
     state = preprocess_state(state)
@@ -147,30 +162,61 @@ def train(env, agent, iterations=1000):
 
 
 
-def evaluate(env, agent, episodes=5):
+def evaluate(env, agent, episodes=5, render_episode=1):
+    all_rewards = []  # Storing cumulative rewards for all episodes
+    cumulative_rewards = []  # Storing cumulative rewards for the plotted episode
+    total_reward = 0  
+
     for episode in range(episodes):
         state, _ = env.reset()
         state = preprocess_state(state)
         total_reward = 0
         done = False
+        episode_rewards = []  
 
         while not done:
             action, _, _ = agent.select_action(state)
             next_state, reward, done, truncated, _ = env.step(action)
             done = done or truncated
-
             state = preprocess_state(next_state)
-            total_reward += reward
 
-            env.render()  
+            total_reward += reward  
+            episode_rewards.append(total_reward)  
+
+            # Render the environment if it's the episode to visualize
+            if episode + 1 == render_episode:
+                env.render()
+
+        all_rewards.append(total_reward)  
+
+        if episode == 0:
+            cumulative_rewards = episode_rewards
 
         print(f"Episode {episode + 1}: Total Reward = {total_reward}")
+
+    # Plotting cumulative rewards per step for the first episode
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(1, len(cumulative_rewards) + 1), cumulative_rewards, marker="o", label="Cumulative Reward (Episode 1)")
+    plt.xlabel("Steps")
+    plt.ylabel("Reward")
+    plt.title("Reward vs Steps")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
 
 
 if __name__ == "__main__":
     from environment import GroceryStoreEnv  
 
-    env = GroceryStoreEnv(grocery_list=["Butter", "Potatoes", "Crackers"])
+#     env = GroceryStoreEnv(grocery_list=["milk", "Eggs", "Cheese", "Yogurt", "Cream", "Butter", "Ice Cream",
+# "Potatoes", "Onions", "Tomatoes", "Lettuce", "Carrot", "Pepper", "Cucumbers", "Celery", "Broccoli", "Mushrooms", "Spinach", "Corn", "Cauliflower", "Garlic",
+# "Banana", "Berries", "Apple", "Grapes", "Melons", "Avocados", "Mandarins", "Oranges", "Peaches", "Pineapple", "Cherries", "Lemons", "Kiwis", "Mangoes",
+# "Baked Beans", "Black Beans", "Cookies", "Crackers", "Dried Fruits", "Gelatin", "Granola Bars", "Nuts", "Popcorn", "Potato Chips", "Pudding", "Raisins", "Pasta", "Peanut Butter",
+# "Chicken", "Lamb", "Bacon", "Ham", "Turkey", "Pork", "Sausage", 
+# "Aluminum Foil", "Garbage Bags", "Napkins", "Paper Plates", "Plastics Bags", "Straws", "Dish Soap"
+# ])
+    env = GroceryStoreEnv(grocery_list=["Avocados", "Melons"])
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
     agent = PPOAgent(state_dim, action_dim)
@@ -178,7 +224,7 @@ if __name__ == "__main__":
     # Training or evaluating
     choice = input("Train or evaluate? (train/eval): ").strip().lower()
     if choice == "train":
-        train(env, agent, iterations=1000)
+        train(env, agent, iterations=10)
         torch.save(agent.model.state_dict(), "ppo_agent_scratch.pth")
     elif choice == "eval":
         agent.model.load_state_dict(torch.load("ppo_agent_scratch.pth"))

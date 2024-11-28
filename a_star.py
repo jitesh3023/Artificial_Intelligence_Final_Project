@@ -79,7 +79,7 @@ class AStarSolver:
 if __name__ == "__main__":
     env = GroceryStoreEnv()
     env.reset()
-    env.grocery_list = ["Butter", "Potatoes", "Crackers"]
+    env.grocery_list = ["milk", "Eggs", "Cheese", "Yogurt", "Cream", "Butter", "Ice Cream", "Potatoes", "Onions", "Tomatoes", "Lettuce", "Carrot", "Pepper", "Cucumbers", "Celery", "Broccoli", "Mushrooms", "Spinach", "Corn", "Cauliflower", "Garlic", "Banana", "Berries", "Apple", "Grapes", "Melons", "Avocados", "Mandarins", "Oranges", "Peaches", "Pineapple", "Cherries", "Lemons", "Kiwis", "Mangoes", "Baked Beans", "Black Beans", "Cookies", "Crackers", "Dried Fruits", "Gelatin", "Granola Bars", "Nuts", "Popcorn", "Potato Chips", "Pudding", "Raisins", "Pasta", "Peanut Butter", "Chicken", "Lamb", "Bacon", "Ham", "Turkey", "Pork", "Sausage", "Aluminum Foil", "Garbage Bags", "Napkins", "Paper Plates", "Plastics Bags", "Straws", "Dish Soap"]
     grocery_items = {item: env.items_list[item] for item in env.grocery_list}
     astar_solver = AStarSolver(env, grocery_items)
     solution_path = astar_solver.solve()
