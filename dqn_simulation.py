@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('TkAgg')
 
+
 # Define the neural network for the DQN agent
 class DQN(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -24,6 +25,7 @@ class DQN(nn.Module):
         x = torch.relu(self.fc2(x))
         x = self.fc3(x)
         return x
+
 
 # Experience Replay Memory
 class ReplayMemory:
@@ -39,6 +41,7 @@ class ReplayMemory:
     def __len__(self):
         return len(self.memory)
 
+
 # Hyperparameters
 batch_size = 64
 gamma = 0.99
@@ -50,21 +53,23 @@ memory_capacity = 10000
 num_episodes = 500  # You can reduce this number to see results sooner
 learning_rate = 1e-3
 
-# Initialize policy and target networks
-env = GroceryStoreEnv()
-input_dim = env.observation_space.shape[0]
-output_dim = env.action_space.n
 
-policy_net = DQN(input_dim, output_dim)
-target_net = DQN(input_dim, output_dim)
-target_net.load_state_dict(policy_net.state_dict())
-target_net.eval()
+# # Initialize policy and target networks
+# env = GroceryStoreEnv()
+# input_dim = env.observation_space.shape[0]
+# output_dim = env.action_space.n
 
-optimizer = optim.Adam(policy_net.parameters(), lr=learning_rate)
-memory = ReplayMemory(memory_capacity)
+# policy_net = DQN(input_dim, output_dim)
+# target_net = DQN(input_dim, output_dim)
+# target_net.load_state_dict(policy_net.state_dict())
+# target_net.eval()
+
+# optimizer = optim.Adam(policy_net.parameters(), lr=learning_rate)
+# memory = ReplayMemory(memory_capacity)
+
 
 # Epsilon-greedy action selection
-def select_action(state, steps_done):
+def select_action(env, policy_net:DQN, state, steps_done):
     eps_threshold = eps_end + (eps_start - eps_end) * np.exp(-1. * steps_done / eps_decay)
     if random.random() < eps_threshold:
         return env.action_space.sample()  # Explore
@@ -74,14 +79,26 @@ def select_action(state, steps_done):
             q_values = policy_net(state)
             return q_values.argmax().item()  # Exploit
 
+
 # Optimize the model
-def optimize_model():
+def optimize_model(memory:ReplayMemory, policy_net:DQN, target_net:DQN, optimizer:torch.optim):
     if len(memory) < batch_size:
         return
     transitions = memory.sample(batch_size)
     batch = list(zip(*transitions))
 
-    state_batch = torch.tensor(np.array(batch[0]), dtype=torch.float32)
+    #* somehow batch[0] isn't consistent. It should be np.ndarray, but sometime it has an extra empty dict and became tuple.
+    #* This part is a temp workaround to fix datatype inconsistency.
+    batch0 = list()
+    for i in range(len(batch[0])):
+        if not isinstance(batch[0][i], np.ndarray):
+            batch0.append(batch[0][i][0].copy())
+        else:
+            batch0.append(batch[0][i].copy())
+
+    # state_batch = torch.tensor(np.array(batch[0]), dtype=torch.float32) # [[x128]x64]   #! issue at np.array(batch[0])
+    #! ValueError: setting an array element with a sequence. The requested array has an inhomogeneous shape after 1 dimensions. The detected shape was (64,) + inhomogeneous part.
+    state_batch = torch.tensor(np.array(batch0), dtype=torch.float32)
     action_batch = torch.tensor(batch[1], dtype=torch.int64).unsqueeze(1)
     reward_batch = torch.tensor(batch[2], dtype=torch.float32).unsqueeze(1)
     next_state_batch = torch.tensor(np.array(batch[3]), dtype=torch.float32)
@@ -106,55 +123,136 @@ def optimize_model():
     torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 1)  # Gradient clipping
     optimizer.step()
 
-# Initialize total_rewards list for plotting
-total_rewards = []
+# # Initialize total_rewards list for plotting
+# total_rewards = []
 
-# Training loop
-steps_done = 0
-for episode in range(num_episodes):
-    state = env.reset()
-    total_reward = 0
-    for t in range(500):  # Limit the number of steps per episode
-        action = select_action(state, steps_done)
-        steps_done += 1
-        next_state, reward, done, _ = env.step(action)
-        total_reward += reward
 
-        memory.push(state, action, reward, next_state, done)
+# # Training/Learning
+# steps_done = 0
+# for episode in range(num_episodes):
+#     state = env.reset()
+#     total_reward = 0
+#     for t in range(500):  # Limit the number of steps per episode
+#         action = select_action(state, steps_done)
+#         steps_done += 1
+#         next_state, reward, done, truncated, _ = env.step(action)
+#         total_reward += reward
+
+#         memory.push(state, action, reward, next_state, done)
+#         state = next_state
+
+#         optimize_model()
+
+#         if done:
+#             break
+#     # Update the target network
+#     if episode % target_update == 0:
+#         target_net.load_state_dict(policy_net.state_dict())
+#     print(f"Episode {episode}, Total reward: {total_reward}")
+
+#     # Append total_reward to the list
+#     total_rewards.append(total_reward)
+
+
+# # Plot the total rewards after training
+# plt.figure()
+# plt.plot(total_rewards)
+# plt.xlabel('Episode')
+# plt.ylabel('Total Reward')
+# plt.title('Training Progress')
+# plt.show()
+
+
+# # Visualize the trained agent
+# state = env.reset()
+# env.render()
+# for t in range(500):
+#     with torch.no_grad():
+#         state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+#         q_values = policy_net(state_tensor)
+#         action = q_values.argmax().item()
+#     next_state, reward, done, _ = env.step(action)
+#     env.render()
+#     state = next_state
+#     if done:
+#         break
+
+# env.close()
+
+
+
+
+
+
+def dqn_run():
+    # Initialize policy and target networks
+    # grocery_list = ['Cheese', 'Broccoli', 'Apple', 'Nuts', 'Chicken'] # for test
+    env = GroceryStoreEnv()
+    input_dim = env.observation_space.shape[0]
+    output_dim = env.action_space.n
+
+    policy_net = DQN(input_dim, output_dim)
+    target_net = DQN(input_dim, output_dim)
+    target_net.load_state_dict(policy_net.state_dict())
+    target_net.eval()
+
+    optimizer = optim.Adam(policy_net.parameters(), lr=learning_rate)
+    memory = ReplayMemory(memory_capacity)
+
+
+    # Training/Learning
+    total_rewards = []
+    steps_done = 0
+    for episode in range(num_episodes):
+        state, _ = env.reset()
+        total_reward = 0
+        for t in range(500):  # Limit the number of steps per episode
+            action = select_action(env, policy_net, state, steps_done)
+            steps_done += 1
+            next_state, reward, done, truncated, emptydict = env.step(action)
+            # print(f'next_state = {next_state.shape}')
+            total_reward += reward
+
+            memory.push(state, action, reward, next_state, done)
+            state = next_state
+
+            optimize_model(memory, policy_net, target_net, optimizer)
+
+            if done:
+                break
+        # Update the target network
+        if episode % target_update == 0:
+            target_net.load_state_dict(policy_net.state_dict())
+        print(f"Episode {episode}, Total reward: {total_reward}\n")
+
+        # Append total_reward to the list
+        total_rewards.append(total_reward)
+
+
+    # Plot the total rewards after training
+    plt.figure()
+    plt.plot(total_rewards)
+    plt.xlabel('Episode')
+    plt.ylabel('Total Reward')
+    plt.title('Training Progress')
+    plt.show()
+
+
+    # Visualize the trained agent
+    state, _ = env.reset()
+    env.render()
+    for t in range(500):
+        with torch.no_grad():
+            state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+            q_values = policy_net(state_tensor)
+            action = q_values.argmax().item()
+        next_state, reward, done, truncated, emptydict = env.step(action)
+        env.render()
         state = next_state
-
-        optimize_model()
-
         if done:
             break
-    # Update the target network
-    if episode % target_update == 0:
-        target_net.load_state_dict(policy_net.state_dict())
-    print(f"Episode {episode}, Total reward: {total_reward}")
 
-    # Append total_reward to the list
-    total_rewards.append(total_reward)
+    env.close()
 
-# Plot the total rewards after training
-plt.figure()
-plt.plot(total_rewards)
-plt.xlabel('Episode')
-plt.ylabel('Total Reward')
-plt.title('Training Progress')
-plt.show()
 
-# Visualize the trained agent
-state = env.reset()
-env.render()
-for t in range(500):
-    with torch.no_grad():
-        state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-        q_values = policy_net(state_tensor)
-        action = q_values.argmax().item()
-    next_state, reward, done, _ = env.step(action)
-    env.render()
-    state = next_state
-    if done:
-        break
-
-env.close()
+dqn_run()
