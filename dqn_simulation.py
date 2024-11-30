@@ -44,40 +44,26 @@ class ReplayMemory:
 
 # Hyperparameters
 batch_size = 64
-gamma = 0.99
-eps_start = 1.0
-eps_end = 0.01
-eps_decay = 5000  # Adjusted for smoother decay
+GAMMA = 0.99 # γ
+EPS_START = 1.0
+EPS_END = 0.01
+EPS_DECAY = 5000  # Adjusted for smoother decay
 target_update = 10
 memory_capacity = 10000
-num_episodes = 500  # You can reduce this number to see results sooner
+num_episodes = 500  # At least 300 episodes to see loss decline
 learning_rate = 1e-3
-
-
-# # Initialize policy and target networks
-# env = GroceryStoreEnv()
-# input_dim = env.observation_space.shape[0]
-# output_dim = env.action_space.n
-
-# policy_net = DQN(input_dim, output_dim)
-# target_net = DQN(input_dim, output_dim)
-# target_net.load_state_dict(policy_net.state_dict())
-# target_net.eval()
-
-# optimizer = optim.Adam(policy_net.parameters(), lr=learning_rate)
-# memory = ReplayMemory(memory_capacity)
 
 
 # Epsilon-greedy action selection
 def select_action(env, policy_net:DQN, state, steps_done):
-    eps_threshold = eps_end + (eps_start - eps_end) * np.exp(-1. * steps_done / eps_decay)
-    if random.random() < eps_threshold:
-        return env.action_space.sample()  # Explore
+    eps_threshold = EPS_END + (EPS_START - EPS_END) * np.exp(-1. * steps_done / EPS_DECAY)  # probability of choosing random action, decay over time
+    if random.random() < eps_threshold: # sample random action
+        return env.action_space.sample()
     else:
         with torch.no_grad():
             state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
             q_values = policy_net(state)
-            return q_values.argmax().item()  # Exploit
+            return q_values.argmax().item()  # Index of max q-value
 
 
 # Optimize the model
@@ -111,10 +97,11 @@ def optimize_model(memory:ReplayMemory, policy_net:DQN, target_net:DQN, optimize
     next_q_values = target_net(next_state_batch).max(1)[0].detach().unsqueeze(1)
 
     # Compute the expected Q values
-    expected_q_values = reward_batch + (gamma * next_q_values * (1 - done_batch))
+    expected_q_values = reward_batch + (GAMMA * next_q_values * (1 - done_batch))
 
     # Compute Huber loss
-    criterion = nn.SmoothL1Loss()
+    # criterion = nn.SmoothL1Loss()     # works bad
+    criterion = nn.MSELoss()
     loss = criterion(q_values, expected_q_values)
 
     # Optimize the model
@@ -123,64 +110,7 @@ def optimize_model(memory:ReplayMemory, policy_net:DQN, target_net:DQN, optimize
     torch.nn.utils.clip_grad_norm_(policy_net.parameters(), 1)  # Gradient clipping
     optimizer.step()
 
-# # Initialize total_rewards list for plotting
-# total_rewards = []
-
-
-# # Training/Learning
-# steps_done = 0
-# for episode in range(num_episodes):
-#     state = env.reset()
-#     total_reward = 0
-#     for t in range(500):  # Limit the number of steps per episode
-#         action = select_action(state, steps_done)
-#         steps_done += 1
-#         next_state, reward, done, truncated, _ = env.step(action)
-#         total_reward += reward
-
-#         memory.push(state, action, reward, next_state, done)
-#         state = next_state
-
-#         optimize_model()
-
-#         if done:
-#             break
-#     # Update the target network
-#     if episode % target_update == 0:
-#         target_net.load_state_dict(policy_net.state_dict())
-#     print(f"Episode {episode}, Total reward: {total_reward}")
-
-#     # Append total_reward to the list
-#     total_rewards.append(total_reward)
-
-
-# # Plot the total rewards after training
-# plt.figure()
-# plt.plot(total_rewards)
-# plt.xlabel('Episode')
-# plt.ylabel('Total Reward')
-# plt.title('Training Progress')
-# plt.show()
-
-
-# # Visualize the trained agent
-# state = env.reset()
-# env.render()
-# for t in range(500):
-#     with torch.no_grad():
-#         state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-#         q_values = policy_net(state_tensor)
-#         action = q_values.argmax().item()
-#     next_state, reward, done, _ = env.step(action)
-#     env.render()
-#     state = next_state
-#     if done:
-#         break
-
-# env.close()
-
-
-
+    return loss
 
 
 
@@ -201,40 +131,50 @@ def dqn_run():
 
 
     # Training/Learning
-    total_rewards = []
+    reward_per_episode = []
+    loss_per_episode = []
     steps_done = 0
     for episode in range(num_episodes):
         state, _ = env.reset()
+        total_loss = 0
         total_reward = 0
-        for t in range(500):  # Limit the number of steps per episode
+        done = False
+
+        step_limit = 0  # Limit the number of steps per episode
+        while not done or step_limit > 500:
             action = select_action(env, policy_net, state, steps_done)
             steps_done += 1
             next_state, reward, done, truncated, emptydict = env.step(action)
-            # print(f'next_state = {next_state.shape}')
+            done = done or truncated
             total_reward += reward
 
             memory.push(state, action, reward, next_state, done)
             state = next_state
 
-            optimize_model(memory, policy_net, target_net, optimizer)
+            loss = optimize_model(memory, policy_net, target_net, optimizer)
+            if loss != None:
+                total_loss += loss.item()
 
-            if done:
-                break
+            step_limit += 1
+
+
         # Update the target network
         if episode % target_update == 0:
             target_net.load_state_dict(policy_net.state_dict())
         print(f"Episode {episode}, Total reward: {total_reward}\n")
 
-        # Append total_reward to the list
-        total_rewards.append(total_reward)
+        # Record reward & loss
+        reward_per_episode.append(total_reward)
+        loss_per_episode.append(total_loss)
 
 
     # Plot the total rewards after training
-    plt.figure()
-    plt.plot(total_rewards)
-    plt.xlabel('Episode')
-    plt.ylabel('Total Reward')
-    plt.title('Training Progress')
+    fig, ax = plt.subplots(nrows=2, ncols=1)
+    fig.subplots_adjust(hspace=0.3)
+    ax[0].plot(reward_per_episode)
+    ax[0].set(xlabel='Episode', ylabel='Reward', title='Reward over Episode')
+    ax[1].plot(loss_per_episode)
+    ax[1].set(xlabel='Episode', ylabel='Loss', title='Loss over Episode')
     plt.show()
 
 
