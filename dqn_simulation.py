@@ -113,14 +113,16 @@ def optimize_model(memory:ReplayMemory, policy_net:DQN, target_net:DQN, optimize
     return loss
 
 
-
-def dqn_run():
-    # Initialize policy and target networks
-    # grocery_list = ['Cheese', 'Broccoli', 'Apple', 'Nuts', 'Chicken'] # for test
-    env = GroceryStoreEnv()
+def setup_env(grocery_list=None):
+    env = GroceryStoreEnv(grocery_list)
     input_dim = env.observation_space.shape[0]
     output_dim = env.action_space.n
+    return env, input_dim, output_dim
 
+
+def dqn_train(grocery_list=None):
+    # Initialize env, policy and target networks
+    env, input_dim, output_dim = setup_env(grocery_list)
     policy_net = DQN(input_dim, output_dim)
     target_net = DQN(input_dim, output_dim)
     target_net.load_state_dict(policy_net.state_dict())
@@ -167,6 +169,9 @@ def dqn_run():
         reward_per_episode.append(total_reward)
         loss_per_episode.append(total_loss)
 
+    # save model
+    torch.save(policy_net.state_dict(), 'dqn_simu.pth')
+
 
     # Plot the total rewards after training
     fig, ax = plt.subplots(nrows=2, ncols=1)
@@ -175,11 +180,25 @@ def dqn_run():
     ax[0].set(xlabel='Episode', ylabel='Reward', title='Reward over Episode')
     ax[1].plot(loss_per_episode)
     ax[1].set(xlabel='Episode', ylabel='Loss', title='Loss over Episode')
+    fig.text(0, 0.01, grocery_list)
     plt.show()
 
+    env.close()
+
+
+def dqn_visual(grocery_list=None):
+    # setup env
+    env, input_dim, output_dim = setup_env(grocery_list)
+
+    # load model
+    policy_net = DQN(input_dim, output_dim)
+    policy_net.load_state_dict(torch.load('dqn_simu.pth'))
 
     # Visualize the trained agent
     state, _ = env.reset()
+    start = input('Enter "s" to start visual: ')
+    while start.lower() != 's':
+        start = input('Enter "s" to start visual: ')
     env.render()
     for t in range(500):
         with torch.no_grad():
@@ -192,7 +211,23 @@ def dqn_run():
         if done:
             break
 
+    close = input('Enter "q" to close: ')
+    while close.lower() != 'q':
+        close = input('Enter "q" to close: ')
     env.close()
 
 
-dqn_run()
+# opt_g = ['Eggs', 'Lettuce', 'Garbage Bags', 'Paper Plates', 'Cherries', 'Yogurt', 'Butter', 'Pudding', 'Dish Soap', 'Ham'] # for test
+
+
+# grocery_list=["milk", "Eggs", "Cheese", "Yogurt", "Cream", "Butter", "Ice Cream",
+#     "Potatoes", "Onions", "Tomatoes", "Lettuce", "Carrot", "Pepper", "Cucumbers", "Celery", "Broccoli", "Mushrooms", "Spinach", "Corn", "Cauliflower", "Garlic",
+#     "Banana", "Berries", "Apple", "Grapes", "Melons", "Avocados", "Mandarins", "Oranges", "Peaches", "Pineapple", "Cherries", "Lemons", "Kiwis", "Mangoes",
+#     "Baked Beans", "Black Beans", "Cookies", "Crackers", "Dried Fruits", "Gelatin", "Granola Bars", "Nuts", "Popcorn", "Potato Chips", "Pudding", "Raisins", "Pasta", "Peanut Butter",
+#     "Chicken", "Lamb", "Bacon", "Ham", "Turkey", "Pork", "Sausage", 
+#     "Aluminum Foil", "Garbage Bags", "Napkins", "Paper Plates", "Plastics Bags", "Straws", "Dish Soap"
+#     ]
+# dqn_train(grocery_list)
+
+grocery_list = ['Carrot', 'Mangoes', 'Plastics Bags', 'Straws', 'Dish Soap', 'Lettuce', 'Spinach']
+dqn_visual(grocery_list)
