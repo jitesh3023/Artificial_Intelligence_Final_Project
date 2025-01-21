@@ -1,6 +1,6 @@
 # Grocery Store Reinforcement Learning Project
 
-This project implements two reinforcement learning algorithms, **Proximal Policy Optimization (PPO)** and **Deep Q-Network (DQN)**, to navigate a simulated grocery store environment.
+This project implements two reinforcement learning algorithms, **Proximal Policy Optimization (PPO)** and **Deep Q-Network (DQN)**, to navigate a simulated grocery store environment. Further for evaluating the performance we are comparing it with A star which acts as our ground truth.
 
 ---
 
@@ -17,20 +17,32 @@ pip install numpy torch gymnasium matplotlib
 ### Clone the Repository:
 
 ```bash
-git clone https://github.com/your-username/grocery-store-rl.git
-cd grocery-store-rl
+git clone https://github.com/user_name/Artificial_Intelligence_Final_Project.git)
+cd Codes
 ```
 
 ### Run the PPO Agent::
 
 ```bash
-python ppo_agent.py
+python3 ppo_agent_scratch.py
 ```
 
 ### Run the DQN Agent::
 
 ```bash
-python dqn_agent.py
+python3 dqn_agent_scratch.py
+```
+
+### Run the A star Agent::
+
+```bash
+python3 a_star.py
+```
+If you plan to visualize the environment then we can do that just by running environment.py code. This will just open the environment and the agent will just roam around randomly.
+### Run the A star Agent::
+
+```bash
+python3 environment.py
 ```
 
 ## Environment
@@ -38,8 +50,8 @@ python dqn_agent.py
 The GroceryStoreEnv simulates a 20x20 grid world representing a grocery store. Key features include:
 
 1. Various grocery items with specific locations
-2. Aisles that act as obstacles
-3. A\* pathfinding for optimal routes
+2. Shelf represented using black boxes
+3. Robot represented using green colored block
 
 # Algorithms
 
@@ -61,15 +73,15 @@ The DQN implementation features:
 
 ## Pre-trained Weights
 
-The project includes pre-trained weights for both PPO and DQN agents. These can be loaded for immediate evaluation or further training.
+The project includes pre-trained weights for both PPO and DQN agents. These can be loaded for immediate evaluation without training.
 
 ## Running the Code
 
 When running either ppo_agent.py or dqn_agent.py, you will be prompted to choose between training mode and evaluation mode:
 Training mode:
 
-- Trains a new agent or continues training an existing one.
-- Evaluation mode: Loads pre-trained weights and evaluates the agent's performance.
+- Trains a new agent from the start.
+- Evaluation mode: Loads pre-trained weights and evaluates the agent's performance on our custom environment.
 
 ## License
 
